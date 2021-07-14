@@ -11,8 +11,8 @@ enum eGroupQuery { vgqGroup = 1, vgqComponent, vgqName, vgqDomain };
 LPCWSTR vcsUserGroupQuery = L"SELECT `Wix4User_`, `Wix4Group_` FROM `Wix4UserGroup` WHERE `Wix4User_`=?";
 enum eUserGroupQuery { vugqUser = 1, vugqGroup };
 
-LPCWSTR vActionableQuery = L"SELECT `Wix4User`,`Component_`,`Name`,`Domain`,`Password`,`Attributes` FROM `Wix4User` WHERE `Component_` IS NOT NULL";
-enum eActionableQuery { vaqUser = 1, vaqComponent, vaqName, vaqDomain, vaqPassword, vaqAttributes };
+LPCWSTR vActionableQuery = L"SELECT `Wix4User`,`Component_`,`Name`,`Domain`,`Password`,`Comment`,`Attributes` FROM `Wix4User` WHERE `Component_` IS NOT NULL";
+enum eActionableQuery { vaqUser = 1, vaqComponent, vaqName, vaqDomain, vaqPassword, vaqComment, vaqAttributes };
 
 
 static HRESULT AddUserToList(
@@ -351,6 +351,11 @@ HRESULT ScaUserRead(
             hr = ::StringCchCopyW(psu->wzPassword, countof(psu->wzPassword), pwzData);
             ExitOnFailure(hr, "failed to copy user password");
 
+            hr = WcaGetRecordFormattedString(hRec, vaqComment, &pwzData);
+            ExitOnFailure(hr, "failed to get Wix4User.Comment");
+            hr = ::StringCchCopyW(psu->wzComment, countof(psu->wzComment), pwzData);
+            ExitOnFailure(hr, "failed to copy user comment: %ls", pwzData);
+
             hr = WcaGetRecordInteger(hRec, vaqAttributes, &psu->iAttributes);
             ExitOnFailure(hr, "failed to get Wix4User.Attributes");
 
@@ -492,13 +497,15 @@ HRESULT ScaUserExecute(
     {
         USER_EXISTS ueUserExists = USER_EXISTS_INDETERMINATE;
 
-        // Always put the User Name and Domain plus Attributes on the front of the CustomAction
+        // Always put the User Name, Domain, and Comment plus Attributes on the front of the CustomAction
         // data.  Sometimes we'll add more data.
         Assert(psu->wzName);
         hr = WcaWriteStringToCaData(psu->wzName, &pwzActionData);
         ExitOnFailure(hr, "Failed to add user name to custom action data: %ls", psu->wzName);
         hr = WcaWriteStringToCaData(psu->wzDomain, &pwzActionData);
         ExitOnFailure(hr, "Failed to add user domain to custom action data: %ls", psu->wzDomain);
+        hr = WcaWriteStringToCaData(psu->wzComment, &pwzActionData);
+        ExitOnFailure(hr, "Failed to add user comment to custom action data: %ls", psu->wzComment);
         hr = WcaWriteIntegerToCaData(psu->iAttributes, &pwzActionData);
         ExitOnFailure(hr, "failed to add user attributes to custom action data for user: %ls", psu->wzKey);
 
@@ -544,7 +551,7 @@ HRESULT ScaUserExecute(
 
         if (WcaIsInstalling(psu->isInstalled, psu->isAction))
         {
-            // If the user exists, check to see if we are supposed to fail if user the exists before
+            // If the user exists, check to see if we are supposed to fail if the user exists before
             // the install.
             if (USER_EXISTS_YES == ueUserExists)
             {

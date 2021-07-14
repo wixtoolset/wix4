@@ -1,0 +1,15 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+    <Package Name="CreateUser" Language="1033" Version="1.0.0.0" Manufacturer="Example Corporation" UpgradeCode="047730a5-30fe-4a62-a520-da9381b8226a">
+        <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeError)" />
+
+        <Feature Id="ProductFeature" Title="!(loc.FeatureTitle)">
+            <ComponentGroupRef Id="ProductComponents" />
+        </Feature>
+    </Package>
+
+    <Fragment>
+            <StandardDirectory Id="ProgramFilesFolder">
+                <Directory Id="INSTALLFOLDER" Name="CreateUser" />
+            </StandardDirectory>
+        </Fragment>
+</Wix>

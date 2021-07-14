@@ -1,0 +1,9 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+    <Fragment>
+        <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+            <Component Id="MyComponentId" Guid="9250C606-D0E8-4384-B304-C673A7F6F448">
+                <util:User Id="NewUser" Name="Fred" Password="Flintstone" Comment="See if we can put a comment on Fred's account" CreateUser="yes" UpdateIfExists="yes" Vital="yes" RemoveOnUninstall="yes" LogonAsBatchJob="no" LogonAsService="no" Disabled="no" PasswordNeverExpires="yes" PasswordExpired="no" CanNotChangePassword="no" />
+            </Component>
+        </ComponentGroup>
+    </Fragment>
+</Wix>

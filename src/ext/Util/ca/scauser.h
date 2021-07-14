@@ -31,6 +31,7 @@ struct SCA_USER
     WCHAR wzDomain[MAX_DARWIN_COLUMN + 1];
     WCHAR wzName[MAX_DARWIN_COLUMN + 1];
     WCHAR wzPassword[MAX_DARWIN_COLUMN + 1];
+    WCHAR wzComment[MAX_DARWIN_COLUMN + 1];
     INT iAttributes;
 
     SCA_GROUP *psgGroups;
