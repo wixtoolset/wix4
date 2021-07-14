@@ -15,6 +15,7 @@ namespace WixToolset.Util
                 new IntermediateFieldDefinition(nameof(UserSymbolFields.Name), IntermediateFieldType.String),
                 new IntermediateFieldDefinition(nameof(UserSymbolFields.Domain), IntermediateFieldType.String),
                 new IntermediateFieldDefinition(nameof(UserSymbolFields.Password), IntermediateFieldType.String),
+                new IntermediateFieldDefinition(nameof(UserSymbolFields.Comment), IntermediateFieldType.String),
                 new IntermediateFieldDefinition(nameof(UserSymbolFields.Attributes), IntermediateFieldType.Number),
             },
             typeof(UserSymbol));
@@ -31,6 +32,7 @@ namespace WixToolset.Util.Symbols
         Name,
         Domain,
         Password,
+        Comment,
         Attributes,
     }
 
@@ -68,6 +70,12 @@ namespace WixToolset.Util.Symbols
         {
             get => this.Fields[(int)UserSymbolFields.Password].AsString();
             set => this.Set((int)UserSymbolFields.Password, value);
+        }
+
+        public string Comment
+        {
+            get => this.Fields[(int)UserSymbolFields.Comment].AsString();
+            set => this.Set((int)UserSymbolFields.Comment, value);
         }
 
         public int Attributes

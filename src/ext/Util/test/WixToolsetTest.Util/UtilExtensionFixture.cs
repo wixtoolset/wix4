@@ -2,6 +2,7 @@
 
 namespace WixToolsetTest.Util
 {
+    using System;
     using System.IO;
     using System.Linq;
     using WixBuildTools.TestSupport;
@@ -284,6 +285,45 @@ namespace WixToolsetTest.Util
                     @"Root='HKLM' Key='SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' Value='Release' Type='value' VariableType='string' />", utilSearches[3].GetTestXml());
                 Assert.Equal("<RegistrySearch Id='RegistrySearchId64' Variable='RegistrySearchVariable64' " +
                     @"Root='HKLM' Key='SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' Value='Release' Type='value' Win64='yes' VariableType='string' />", utilSearches[4].GetTestXml());
+            }
+        }
+
+        [Fact]
+        public void CanCreateUserAccountWithComment()
+        {
+            var folder = TestData.Get(@"TestData\CreateUser");
+            var rootFolder = TestData.Get();
+            var wixext = Path.Combine(rootFolder, "WixToolset.Util.wixext.dll");
+
+            using (var fs = new DisposableFileSystem())
+            {
+                var baseFolder = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                baseFolder = Path.Combine(baseFolder, "Desktop", "CreateUser");
+                var intermediateFolder = Path.Combine(baseFolder, "obj");
+
+                var result = WixRunner.Execute(new[]
+                {
+                    "build",
+                    Path.Combine(folder, "Package.wxs"),
+                    Path.Combine(folder, "PackageComponents.wxs"),
+                    "-ext", wixext,
+                    "-loc", Path.Combine(folder, "Package.en-us.wxl"),
+                    "-bindpath", Path.Combine(folder, "data"),
+                    "-intermediateFolder", intermediateFolder,
+                    "-o", Path.Combine(baseFolder, @"test.msi")
+                });
+
+                result.AssertSuccess();
+
+                Assert.True(File.Exists(Path.Combine(baseFolder, @"test.msi")));
+                Assert.True(File.Exists(Path.Combine(baseFolder, @"test.wixpdb")));
+
+                var intermediate = Intermediate.Load(Path.Combine(baseFolder, @"test.wixpdb"));
+
+                Assert.False(intermediate.HasLevel(WixToolset.Data.IntermediateLevels.Compiled));
+                Assert.True(intermediate.HasLevel(WixToolset.Data.IntermediateLevels.Linked));
+                Assert.True(intermediate.HasLevel(WixToolset.Data.IntermediateLevels.Resolved));
+                Assert.True(intermediate.HasLevel(WixToolset.Data.WindowsInstaller.IntermediateLevels.FullyBound));
             }
         }
 

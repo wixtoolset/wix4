@@ -229,6 +229,7 @@ namespace WixToolset.Util
                 new ColumnDefinition("Name", ColumnType.String, 255, primaryKey: false, nullable: false, ColumnCategory.Formatted, description: "User name", modularizeType: ColumnModularizeType.Property),
                 new ColumnDefinition("Domain", ColumnType.String, 255, primaryKey: false, nullable: true, ColumnCategory.Formatted, description: "User domain", modularizeType: ColumnModularizeType.Property),
                 new ColumnDefinition("Password", ColumnType.String, 255, primaryKey: false, nullable: true, ColumnCategory.Formatted, description: "User password", modularizeType: ColumnModularizeType.Property),
+                new ColumnDefinition("Comment", ColumnType.String, 255, primaryKey: false, nullable: true, ColumnCategory.Formatted, description: "User comment", modularizeType: ColumnModularizeType.Property),
                 new ColumnDefinition("Attributes", ColumnType.Number, 4, primaryKey: false, nullable: true, ColumnCategory.Unknown, minValue: 0, maxValue: 65535, description: "Attributes describing how to create the user"),
             },
             symbolIdIsPrimaryKey: true

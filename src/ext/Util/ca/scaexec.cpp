@@ -520,9 +520,10 @@ static HRESULT ModifyUserLocalBatchRight(
     return hr;
 }
 
-static void SetUserPasswordAndAttributes(
+static void SetUserPasswordCommentAndAttributes(
     __in USER_INFO_1* puserInfo,
     __in LPWSTR wzPassword,
+    __in LPWSTR wzComment,
     __in int iAttributes
     )
 {
@@ -530,6 +531,9 @@ static void SetUserPasswordAndAttributes(
 
     // Set the User's password
     puserInfo->usri1_password = wzPassword;
+
+    // Set the User's comment
+    puserInfo->usri1_comment = wzComment;
 
     // Apply the Attributes
     if (SCAU_DONT_EXPIRE_PASSWRD & iAttributes)
@@ -701,6 +705,7 @@ extern "C" UINT __stdcall CreateUser(
     LPWSTR pwzDomain = NULL;
     LPWSTR pwzScriptKey = NULL;
     LPWSTR pwzPassword = NULL;
+    LPWSTR pwzComment = NULL;
     LPWSTR pwzGroup = NULL;
     LPWSTR pwzGroupDomain = NULL;
     PDOMAIN_CONTROLLER_INFOW pDomainControllerInfo = NULL;
@@ -737,6 +742,9 @@ extern "C" UINT __stdcall CreateUser(
 
     hr = WcaReadStringFromCaData(&pwz, &pwzDomain);
     ExitOnFailure(hr, "failed to read domain from custom action data");
+
+    hr = WcaReadStringFromCaData(&pwz, &pwzComment);
+    ExitOnFailure(hr, "failed to read user comment from custom action data");
 
     hr = WcaReadIntegerFromCaData(&pwz, &iAttributes);
     ExitOnFailure(hr, "failed to read attributes from custom action data");
@@ -789,7 +797,7 @@ extern "C" UINT __stdcall CreateUser(
         userInfo.usri1_comment = NULL;
         userInfo.usri1_script_path = NULL;
 
-        SetUserPasswordAndAttributes(&userInfo, pwzPassword, iAttributes);
+        SetUserPasswordCommentAndAttributes(&userInfo, pwzPassword, pwzComment, iAttributes);
 
         //
         // Create the User
@@ -820,9 +828,9 @@ extern "C" UINT __stdcall CreateUser(
                 er = ::NetUserGetInfo(wz, pwzName, 1, reinterpret_cast<LPBYTE*>(&puserInfo));
                 if (NERR_Success == er)
                 {
-                    // Change the existing user's password and attributes again then try
+                    // Change the existing user's password, comment, and attributes again then try
                     // to update user with this new data
-                    SetUserPasswordAndAttributes(puserInfo, pwzPassword, iAttributes);
+                    SetUserPasswordCommentAndAttributes(puserInfo, pwzPassword, pwzComment, iAttributes);
 
                     er = ::NetUserSetInfo(wz, pwzName, 1, reinterpret_cast<LPBYTE>(puserInfo), &dw);
                 }
