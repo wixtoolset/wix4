@@ -672,6 +672,34 @@ LExit:
     return hr;
 }
 
+/********************************************************************
+ RegReadNone - reads a NONE registry key value.
+
+*********************************************************************/
+extern "C" HRESULT DAPI RegReadNone(
+    __in HKEY hk,
+    __in_z_opt LPCWSTR wzName)
+{
+    HRESULT hr = S_OK;
+    DWORD er = ERROR_SUCCESS;
+    DWORD dwType = 0;
+
+    er = vpfnRegQueryValueExW(hk, wzName, NULL, &dwType, NULL, NULL);
+    if (E_FILENOTFOUND == HRESULT_FROM_WIN32(er))
+    {
+        ExitFunction1(hr = E_FILENOTFOUND);
+    }
+    RegExitOnWin32Error(er, hr, "Failed to query registry key value.");
+
+    if (REG_NONE != dwType)
+    {
+        hr = HRESULT_FROM_WIN32(ERROR_INVALID_DATATYPE);
+        RegExitOnRootFailure(hr, "Error reading version registry value due to unexpected data type: %u", dwType);
+    }
+
+LExit:
+    return hr;
+}
 
 /********************************************************************
  RegReadNumber - reads a DWORD registry key value as a number.
@@ -882,6 +910,25 @@ HRESULT DAPI RegWriteStringArray(
 LExit:
     ReleaseStr(sczWriteValue);
 
+    return hr;
+}
+
+/********************************************************************
+ RegWriteNone - writes a registry key value as none.
+
+*********************************************************************/
+extern "C" HRESULT DAPI RegWriteNone(
+    __in HKEY hk,
+    __in_z_opt LPCWSTR wzName
+)
+{
+    HRESULT hr = S_OK;
+    DWORD er = ERROR_SUCCESS;
+
+    er = vpfnRegSetValueExW(hk, wzName, 0, REG_NONE, NULL, NULL);
+    RegExitOnWin32Error(er, hr, "Failed to set %ls value.", wzName);
+
+LExit:
     return hr;
 }
 

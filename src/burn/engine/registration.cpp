@@ -32,6 +32,7 @@ const LPCWSTR REGISTRY_BUNDLE_RESUME_COMMAND_LINE = L"BundleResumeCommandLine";
 const LPCWSTR REGISTRY_BUNDLE_VERSION_MAJOR = L"VersionMajor";
 const LPCWSTR REGISTRY_BUNDLE_VERSION_MINOR = L"VersionMinor";
 const LPCWSTR SWIDTAG_FOLDER = L"swidtag";
+const LPCWSTR REGISTRY_BUNDLE_VARIABLE_KEY = L"variables";
 
 // internal function declarations
 
@@ -909,6 +910,7 @@ extern "C" HRESULT RegistrationSessionEnd(
 {
     HRESULT hr = S_OK;
     LPWSTR sczRebootRequiredKey = NULL;
+    LPWSTR sczVariableKey = NULL;
     HKEY hkRebootRequired = NULL;
     HKEY hkRegistration = NULL;
 
@@ -956,6 +958,17 @@ extern "C" HRESULT RegistrationSessionEnd(
 
         RemoveSoftwareTags(pVariables, &pRegistration->softwareTags);
 
+        // build variable registry key path
+        hr = StrAllocFormatted(&sczVariableKey, L"%s\\%s", pRegistration->sczRegistrationKey, REGISTRY_BUNDLE_VARIABLE_KEY);
+        ExitOnFailure(hr, "Failed to build variable registry key path.");
+
+        // Delete registration variable key.
+        hr = RegDelete(pRegistration->hkRoot, sczVariableKey, REG_KEY_DEFAULT, FALSE);
+        if (E_FILENOTFOUND != hr)
+        {
+            ExitOnFailure(hr, "Failed to delete registration variable key: %ls", sczVariableKey);
+        }
+
         // Delete registration key.
         hr = RegDelete(pRegistration->hkRoot, pRegistration->sczRegistrationKey, REG_KEY_DEFAULT, FALSE);
         if (E_FILENOTFOUND != hr)
@@ -985,6 +998,7 @@ extern "C" HRESULT RegistrationSessionEnd(
 LExit:
     ReleaseRegKey(hkRegistration);
     ReleaseRegKey(hkRebootRequired);
+    ReleaseStr(sczVariableKey);
     ReleaseStr(sczRebootRequiredKey);
 
     return hr;
@@ -1001,6 +1015,15 @@ extern "C" HRESULT RegistrationSaveState(
     )
 {
     HRESULT hr = S_OK;
+    BURN_VARIABLES variables = { };
+    SIZE_T iBuffer_Unused = 0;
+    HKEY hkRegistration = NULL;
+    LPWSTR sczVariableKey = NULL;
+    LPWSTR sczVariableValue = NULL;
+    LPWSTR sczValueName = NULL;
+    DWORD dwType = 0;
+    DWORD dwNumberOfExistingValues = 0;
+
 
     // write data to file
     hr = FileWrite(pRegistration->sczStateFile, FILE_ATTRIBUTE_NORMAL, pbBuffer, cbBuffer, NULL);
@@ -1011,7 +1034,76 @@ extern "C" HRESULT RegistrationSaveState(
     }
     ExitOnFailure(hr, "Failed to write state to file: %ls", pRegistration->sczStateFile);
 
+    ::InitializeCriticalSection(&variables.csAccess);
+
+    hr = VariableDeserialize(&variables, TRUE, pbBuffer, cbBuffer, &iBuffer_Unused);
+    ExitOnFailure(hr, "Failed to read variables.");
+
+    // build variable registry key path
+    hr = StrAllocFormatted(&sczVariableKey, L"%s\\%s", pRegistration->sczRegistrationKey, REGISTRY_BUNDLE_VARIABLE_KEY);
+    ExitOnFailure(hr, "Failed to build variable registry key path.");
+
+    // open registration variable key
+    hr = RegCreate(pRegistration->hkRoot, sczVariableKey, KEY_WRITE | KEY_QUERY_VALUE, &hkRegistration);
+    ExitOnFailure(hr, "Failed to create registration variable key.");
+
+    hr = RegQueryInfoKey(hkRegistration, 0, 0, 0, 0, 0, 0, &dwNumberOfExistingValues, 0, 0, 0, 0);
+    ExitOnFailure(hr, "Failed to query registration variable count.");
+
+    for (DWORD i = dwNumberOfExistingValues; i >= 0; --i)
+    {
+        hr = RegValueEnum(hkRegistration, i, &sczValueName, &dwType);
+
+        if (E_NOMOREITEMS == hr)
+        {
+            hr = S_OK;
+            break;
+        }
+
+        ExitOnFailure(hr, "Failed to enumerate value %u", i);
+
+        hr = RegDeleteValue(hkRegistration, sczValueName);
+        ExitOnFailure(hr, "Failed to delete registration variable value.");
+    }
+
+    // Write variables.
+    for (DWORD i = 0; i < variables.cVariables; ++i)
+    {
+        BURN_VARIABLE* pVariable = &variables.rgVariables[i];
+
+        // Write variable value.
+        switch (pVariable->Value.Type)
+        {
+        case BURN_VARIANT_TYPE_NONE:
+            hr = RegWriteNone(hkRegistration, pVariable->sczName);
+            ExitOnFailure(hr, "Failed to set variable value.");
+            break;
+        case BURN_VARIANT_TYPE_NUMERIC: __fallthrough;
+        case BURN_VARIANT_TYPE_VERSION: __fallthrough;
+        case BURN_VARIANT_TYPE_FORMATTED: __fallthrough;
+        case BURN_VARIANT_TYPE_STRING:
+            hr = BVariantGetString(&pVariable->Value, &sczVariableValue);
+            ExitOnFailure(hr, "Failed to get variable value.");
+
+            hr = RegWriteString(hkRegistration, pVariable->sczName, sczVariableValue);
+            ExitOnFailure(hr, "Failed to set variable value.");
+
+            ReleaseNullStrSecure(sczVariableValue);
+
+            break;
+        default:
+            hr = E_INVALIDARG;
+            ExitOnFailure(hr, "Unsupported variable type.");
+        }
+
+    }
 LExit:
+    VariablesUninitialize(&variables);
+    ReleaseStr(sczValueName);
+    ReleaseStr(sczVariableValue);
+    ReleaseStr(sczVariableKey);
+    ReleaseRegKey(hkRegistration);
+
     return hr;
 }
 

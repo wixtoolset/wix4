@@ -30,6 +30,7 @@
 #include <xmlutil.h>
 #include <dictutil.h>
 #include <deputil.h>
+#include <butil.h>
 
 #include "BootstrapperEngine.h"
 #include "BootstrapperApplication.h"

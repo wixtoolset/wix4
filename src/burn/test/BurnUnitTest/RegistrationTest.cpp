@@ -8,9 +8,12 @@
 #define HKCU_PATH L"SOFTWARE\\WiX_Burn_UnitTest\\HKCU"
 #define REGISTRY_UNINSTALL_KEY L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"
 #define REGISTRY_RUN_KEY L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+#define TEST_BUNDLE_ID L"{D54F896D-1952-43e6-9C67-B5652240618C}"
+#define TEST_BUNDLE_UPGRADE_CODE L"{89FDAE1F-8CC1-48B9-B930-3945E0D3E7F0}"
 
 #define TEST_UNINSTALL_KEY L"HKEY_CURRENT_USER\\" HKCU_PATH L"\\" REGISTRY_UNINSTALL_KEY L"\\{D54F896D-1952-43e6-9C67-B5652240618C}"
 #define TEST_RUN_KEY L"HKEY_CURRENT_USER\\" HKCU_PATH L"\\" REGISTRY_RUN_KEY
+#define TEST_VARIABLE_KEY L"HKEY_CURRENT_USER\\" HKCU_PATH L"\\" REGISTRY_UNINSTALL_KEY L"\\{D54F896D-1952-43e6-9C67-B5652240618C}\\variables"
 
 
 static LSTATUS APIENTRY RegistrationTest_RegCreateKeyExW(
@@ -496,30 +499,153 @@ namespace Bootstrapper
             }
         }
 
-        [Fact(Skip = "Currently fails")]
-        void ResumeTest()
+        [Fact]
+        void DUtilButilTest()
         {
             HRESULT hr = S_OK;
             IXMLDOMElement* pixeBundle = NULL;
             LPWSTR sczCurrentProcess = NULL;
+            LPWSTR sczValue = NULL;
+            LPWSTR sczRelatedBundleId = NULL;
+            DWORD dwRelatedBundleIndex = 0;
             BURN_VARIABLES variables = { };
             BURN_USER_EXPERIENCE userExperience = { };
             BOOTSTRAPPER_COMMAND command = { };
             BURN_REGISTRATION registration = { };
             BURN_LOGGING logging = { };
             BURN_PACKAGES packages = { };
-            BYTE rgbData[256] = { };
-            BOOTSTRAPPER_RESUME_TYPE resumeType = BOOTSTRAPPER_RESUME_TYPE_NONE;
             BYTE* pbBuffer = NULL;
             SIZE_T cbBuffer = 0;
+            
             String^ cacheDirectory = Path::Combine(Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::LocalApplicationData), gcnew String(L"Package Cache")), gcnew String(L"{D54F896D-1952-43e6-9C67-B5652240618C}"));
             try
             {
-                for (DWORD i = 0; i < 256; ++i)
+                // set mock API's
+                RegFunctionOverride(RegistrationTest_RegCreateKeyExW, RegistrationTest_RegOpenKeyExW, RegistrationTest_RegDeleteKeyExW, NULL, NULL, NULL, NULL, NULL, NULL);
+
+                Registry::CurrentUser->CreateSubKey(gcnew String(HKCU_PATH));
+
+                logging.sczPath = L"BurnUnitTest.txt";
+
+                LPCWSTR wzDocument =
+                    L"<Bundle>"
+                    L"    <UX>"
+                    L"        <Payload Id='ux.dll' FilePath='ux.dll' Packaging='embedded' SourcePath='ux.dll' Hash='000000000000' />"
+                    L"    </UX>"
+                    L"    <RelatedBundle Id='" TEST_BUNDLE_UPGRADE_CODE "' Action='Upgrade' />"
+                    L"    <Registration Id='" TEST_BUNDLE_ID "' Tag='foo' ProviderKey='" TEST_BUNDLE_ID "' Version='1.0.0.0' ExecutableName='setup.exe' PerMachine='no'>"
+                    L"        <Arp Register='yes' Publisher='WiX Toolset' DisplayName='RegisterBasicTest' DisplayVersion='1.0.0.0' />"
+                    L"    </Registration>"
+                    L"    <Variable Id='MyBurnVariable1' Type='numeric' Value='0' Hidden='no' Persisted='yes' />"
+                    L"    <Variable Id='MyBurnVariable2' Type='string' Value='foo' Hidden='no' Persisted='yes' />"
+                    L"    <Variable Id='MyBurnVariable3' Type='version' Value='v1.1-alpha' Hidden='no' Persisted='yes' />"
+                    L"    <Variable Id='MyBurnVariable4' Type='string' Value='foo' Hidden='no' Persisted='no' />"
+                    L"    <CommandLine Variables='upperCase' />"
+                    L"</Bundle>";
+
+                // load XML document
+                LoadBundleXmlHelper(wzDocument, &pixeBundle);
+
+                hr = VariableInitialize(&variables);
+                TestThrowOnFailure(hr, L"Failed to initialize variables.");
+
+                hr = VariablesParseFromXml(&variables, pixeBundle);
+                TestThrowOnFailure(hr, L"Failed to parse variables from XML.");
+
+                hr = UserExperienceParseFromXml(&userExperience, pixeBundle);
+                TestThrowOnFailure(hr, L"Failed to parse UX from XML.");
+
+                hr = RegistrationParseFromXml(&registration, pixeBundle);
+                TestThrowOnFailure(hr, L"Failed to parse registration from XML.");
+
+                hr = PlanSetResumeCommand(&registration, BOOTSTRAPPER_ACTION_INSTALL, &command, &logging);
+                TestThrowOnFailure(hr, L"Failed to set registration resume command.");
+
+                hr = PathForCurrentProcess(&sczCurrentProcess, NULL);
+                TestThrowOnFailure(hr, L"Failed to get current process path.");
+
+                // begin session
+                hr = RegistrationSessionBegin(sczCurrentProcess, &registration, &variables, BURN_REGISTRATION_ACTION_OPERATIONS_WRITE_REGISTRATION, BURN_DEPENDENCY_REGISTRATION_ACTION_REGISTER, 0, BOOTSTRAPPER_REGISTRATION_TYPE_INPROGRESS);
+                TestThrowOnFailure(hr, L"Failed to register bundle.");
+
+                VariableSetNumericHelper(&variables, L"MyBurnVariable1", 42);
+                VariableSetStringHelper(&variables, L"MyBurnVariable2", L"bar", FALSE);
+                VariableSetVersionHelper(&variables, L"MyBurnVariable3", L"v1.0-beta");
+
+                hr = VariableSerialize(&variables, TRUE, &pbBuffer, &cbBuffer);
+                TestThrowOnFailure(hr, "Failed to serialize variables.");
+
+                if (!Directory::Exists(cacheDirectory))
                 {
-                    rgbData[i] = (BYTE)i;
+                    Directory::CreateDirectory(cacheDirectory);
                 }
 
+                hr = RegistrationSaveState(&registration, pbBuffer, cbBuffer);
+                TestThrowOnFailure(hr, L"Failed to save state.");
+
+                ReleaseNullBuffer(pbBuffer);
+                cbBuffer = 0;
+                // Verify the variables exist
+                Assert::Equal<String^>(gcnew String(L"42"), (String^)Registry::GetValue(gcnew String(TEST_VARIABLE_KEY), gcnew String(L"MyBurnVariable1"), nullptr));
+                Assert::Equal<String^>(gcnew String(L"bar"), (String^)Registry::GetValue(gcnew String(TEST_VARIABLE_KEY), gcnew String(L"MyBurnVariable2"), nullptr));
+                Assert::Equal<String^>(gcnew String(L"1.0-beta"), (String^)Registry::GetValue(gcnew String(TEST_VARIABLE_KEY), gcnew String(L"MyBurnVariable3"), nullptr));
+                Assert::Empty((System::Collections::IEnumerable ^)Registry::GetValue(gcnew String(TEST_VARIABLE_KEY), gcnew String(L"WixBundleForcedRestartPackage"), nullptr));
+
+                hr = StrAlloc(&sczRelatedBundleId, MAX_GUID_CHARS + 1);
+
+                // Verify we can find ourself via the UpgradeCode
+                hr = BundleEnumRelatedBundle(TEST_BUNDLE_UPGRADE_CODE, BUNDLE_INSTALL_CONTEXT_USER, &dwRelatedBundleIndex, sczRelatedBundleId);
+                TestThrowOnFailure(hr, L"Failed to enumerate related bundle.");
+                Assert::Equal<String^>(gcnew String(TEST_BUNDLE_ID), gcnew String(sczRelatedBundleId));
+
+                // Verify we can read the bundle variables via the API
+                hr = BundleGetBundleVariable(TEST_BUNDLE_ID, L"MyBurnVariable1", &sczValue);
+                TestThrowOnFailure(hr, L"Failed to read MyBurnVariable1.");
+                Assert::Equal<String^>(gcnew String(L"42"), gcnew String(sczValue));
+
+                // end session
+                hr = RegistrationSessionEnd(&registration, &variables, &packages, BURN_RESUME_MODE_NONE, BOOTSTRAPPER_APPLY_RESTART_NONE, BURN_DEPENDENCY_REGISTRATION_ACTION_UNREGISTER, BOOTSTRAPPER_REGISTRATION_TYPE_NONE);
+                TestThrowOnFailure(hr, L"Failed to unregister bundle.");
+            }
+            finally
+            {
+                ReleaseStr(sczRelatedBundleId);
+                ReleaseStr(sczCurrentProcess);
+                ReleaseObject(pixeBundle);
+                UserExperienceUninitialize(&userExperience);
+                RegistrationUninitialize(&registration);
+                VariablesUninitialize(&variables);
+
+                Registry::CurrentUser->DeleteSubKeyTree(gcnew String(ROOT_PATH));
+                if (Directory::Exists(cacheDirectory))
+                {
+                    Directory::Delete(cacheDirectory, true);
+                }
+
+                RegFunctionOverride(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+            }
+        }
+
+        [Fact]//(Skip = "Currently fails")]
+        void ResumeTest()
+        {
+            HRESULT hr = S_OK;
+            IXMLDOMElement* pixeBundle = NULL;
+            LPWSTR sczCurrentProcess = NULL;
+            LPWSTR sczValue = NULL;
+            BURN_VARIABLES variables = { };
+            BURN_USER_EXPERIENCE userExperience = { };
+            BOOTSTRAPPER_COMMAND command = { };
+            BURN_REGISTRATION registration = { };
+            BURN_LOGGING logging = { };
+            BURN_PACKAGES packages = { };
+            BOOTSTRAPPER_RESUME_TYPE resumeType = BOOTSTRAPPER_RESUME_TYPE_NONE;
+            BYTE* pbBuffer = NULL;
+            SIZE_T cbBuffer = 0;
+            SIZE_T piBuffer = 0;
+            String^ cacheDirectory = Path::Combine(Path::Combine(Environment::GetFolderPath(Environment::SpecialFolder::LocalApplicationData), gcnew String(L"Package Cache")), gcnew String(L"{D54F896D-1952-43e6-9C67-B5652240618C}"));
+            try
+            {
                 // set mock API's
                 RegFunctionOverride(RegistrationTest_RegCreateKeyExW, RegistrationTest_RegOpenKeyExW, RegistrationTest_RegDeleteKeyExW, NULL, NULL, NULL, NULL, NULL, NULL);
 
@@ -535,6 +661,10 @@ namespace Bootstrapper
                     L"    <Registration Id='{D54F896D-1952-43e6-9C67-B5652240618C}' UpgradeCode='{D54F896D-1952-43e6-9C67-B5652240618C}' Tag='foo' ProviderKey='foo' Version='1.0.0.0' ExecutableName='setup.exe' PerMachine='no'>"
                     L"        <Arp Register='yes' Publisher='WiX Toolset' DisplayName='RegisterBasicTest' DisplayVersion='1.0.0.0' />"
                     L"    </Registration>"
+                    L"    <Variable Id='MyBurnVariable1' Type='numeric' Value='0' Hidden='no' Persisted='yes' />"
+                    L"    <Variable Id='MyBurnVariable2' Type='string' Value='foo' Hidden='no' Persisted='yes' />"
+                    L"    <Variable Id='MyBurnVariable3' Type='version' Value='v1.1-alpha' Hidden='no' Persisted='yes' />"
+                    L"    <CommandLine Variables='upperCase' />"
                     L"</Bundle>";
 
                 // load XML document
@@ -542,6 +672,9 @@ namespace Bootstrapper
 
                 hr = VariableInitialize(&variables);
                 TestThrowOnFailure(hr, L"Failed to initialize variables.");
+
+                hr = VariablesParseFromXml(&variables, pixeBundle);
+                TestThrowOnFailure(hr, L"Failed to parse variables from XML.");
 
                 hr = UserExperienceParseFromXml(&userExperience, pixeBundle);
                 TestThrowOnFailure(hr, L"Failed to parse UX from XML.");
@@ -565,8 +698,32 @@ namespace Bootstrapper
                 hr = RegistrationSessionBegin(sczCurrentProcess, &registration, &variables, BURN_REGISTRATION_ACTION_OPERATIONS_WRITE_REGISTRATION, BURN_DEPENDENCY_REGISTRATION_ACTION_REGISTER, 0, BOOTSTRAPPER_REGISTRATION_TYPE_INPROGRESS);
                 TestThrowOnFailure(hr, L"Failed to register bundle.");
 
-                hr = RegistrationSaveState(&registration, rgbData, sizeof(rgbData));
+                VariableSetNumericHelper(&variables, L"MyBurnVariable1", 42);
+                VariableSetStringHelper(&variables, L"MyBurnVariable2", L"bar", FALSE);
+                VariableSetVersionHelper(&variables, L"MyBurnVariable3", L"v1.0-beta");
+
+                hr = VariableSerialize(&variables, TRUE, &pbBuffer, &cbBuffer);
+                TestThrowOnFailure(hr, "Failed to serialize variables.");
+
+                if (!Directory::Exists(cacheDirectory))
+                {
+                    Directory::CreateDirectory(cacheDirectory);
+                }
+
+                hr = RegistrationSaveState(&registration, pbBuffer, cbBuffer);
                 TestThrowOnFailure(hr, L"Failed to save state.");
+
+                ReleaseNullBuffer(pbBuffer);
+                cbBuffer = 0;
+                // Verify the variables exist
+                Assert::Equal<String^>(gcnew String(L"42"), (String^)Registry::GetValue(gcnew String(TEST_VARIABLE_KEY), gcnew String(L"MyBurnVariable1"), nullptr));
+                Assert::Equal<String^>(gcnew String(L"bar"), (String^)Registry::GetValue(gcnew String(TEST_VARIABLE_KEY), gcnew String(L"MyBurnVariable2"), nullptr));
+                Assert::Equal<String^>(gcnew String(L"1.0-beta"), (String^)Registry::GetValue(gcnew String(TEST_VARIABLE_KEY), gcnew String(L"MyBurnVariable3"), nullptr));
+                Assert::Empty((System::Collections::IEnumerable^)Registry::GetValue(gcnew String(TEST_VARIABLE_KEY), gcnew String(L"WixBundleForcedRestartPackage"), nullptr));
+
+                hr = BundleGetBundleVariable(TEST_BUNDLE_ID, L"MyBurnVariable1", &sczValue);
+                TestThrowOnFailure(hr, L"Failed to read MyBurnVariable1.");
+                Assert::Equal<String^>(gcnew String(L"42"), gcnew String(sczValue));
 
                 // read interrupted resume type
                 hr = RegistrationDetectResumeType(&registration, &resumeType);
@@ -591,8 +748,11 @@ namespace Bootstrapper
                 hr = RegistrationLoadState(&registration, &pbBuffer, &cbBuffer);
                 TestThrowOnFailure(hr, L"Failed to load state.");
 
-                Assert::Equal((SIZE_T)sizeof(rgbData), cbBuffer);
-                Assert::True(0 == memcmp(pbBuffer, rgbData, sizeof(rgbData)));
+                hr = VariableDeserialize(&variables, TRUE, pbBuffer, cbBuffer, &piBuffer);
+                TestThrowOnFailure(hr, L"Failed to deserialize variables.");
+
+                //Assert::Equal((SIZE_T)sizeof(rgbData), cbBuffer);
+                //Assert::True(0 == memcmp(pbBuffer, rgbData, sizeof(rgbData)));
 
                 // write active resume mode
                 hr = RegistrationSessionResume(&registration, &variables, BOOTSTRAPPER_REGISTRATION_TYPE_INPROGRESS);

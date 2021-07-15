@@ -178,6 +178,10 @@ HRESULT DAPI RegReadVersion(
     __in_z_opt LPCWSTR wzName,
     __out DWORD64* pdw64Version
     );
+HRESULT DAPI RegReadNone(
+    __in HKEY hk,
+    __in_z_opt LPCWSTR wzName
+);
 HRESULT DAPI RegReadNumber(
     __in HKEY hk,
     __in_z_opt LPCWSTR wzName,
@@ -211,6 +215,10 @@ HRESULT DAPI RegWriteStringFormatted(
     __in __format_string LPCWSTR szFormat,
     ...
     );
+HRESULT DAPI RegWriteNone(
+    __in HKEY hk,
+    __in_z_opt LPCWSTR wzName
+);
 HRESULT DAPI RegWriteNumber(
     __in HKEY hk,
     __in_z_opt LPCWSTR wzName,

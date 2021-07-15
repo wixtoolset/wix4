@@ -6,11 +6,11 @@
 extern "C" {
 #endif
 
-enum BUNDLE_INSTALL_CONTEXT
+typedef enum BUNDLE_INSTALL_CONTEXT
 {
     BUNDLE_INSTALL_CONTEXT_MACHINE,
     BUNDLE_INSTALL_CONTEXT_USER,
-};
+} BUNDLE_INSTALL_CONTEXT;
 
 
 /********************************************************************
@@ -54,6 +54,13 @@ HRESULT DAPI BundleEnumRelatedBundle(
   __inout  PDWORD pdwStartIndex,
   __out_ecount(MAX_GUID_CHARS+1)  LPWSTR lpBundleIdBuf
     );
+
+HRESULT DAPI BundleGetBundleVariable(
+    __in_z LPCWSTR wzBundleId,
+    __in_z LPCWSTR wzVariable,
+    __deref_out_z LPWSTR* psczValue
+);
+
 
 #ifdef __cplusplus
 }

@@ -20,6 +20,7 @@
 const LPCWSTR BUNDLE_REGISTRATION_REGISTRY_UNINSTALL_KEY = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
 const LPCWSTR BUNDLE_REGISTRATION_REGISTRY_BUNDLE_UPGRADE_CODE = L"BundleUpgradeCode";
 const LPCWSTR BUNDLE_REGISTRATION_REGISTRY_BUNDLE_PROVIDER_KEY = L"BundleProviderKey";
+const LPCWSTR BUNDLE_REGISTRATION_REGISTRY_BUNDLE_VARIABLE_KEY = L"variables";
 
 // Forward declarations.
 /********************************************************************
@@ -29,10 +30,13 @@ NOTE: caller is responsible for closing key
 ********************************************************************/
 static HRESULT OpenBundleKey(
     __in_z LPCWSTR wzBundleId,
-    __in BUNDLE_INSTALL_CONTEXT context, 
-    __inout HKEY *key);
+    __in BUNDLE_INSTALL_CONTEXT context,
+    __in_opt LPCWSTR szSubKey,
+    __inout HKEY* key);
 
-
+/********************************************************************
+BundleGetBundleInfo - Read the registration data for a gven bundle
+********************************************************************/
 extern "C" HRESULT DAPI BundleGetBundleInfo(
   __in_z LPCWSTR wzBundleId,
   __in_z LPCWSTR wzAttribute,
@@ -43,7 +47,6 @@ extern "C" HRESULT DAPI BundleGetBundleInfo(
     Assert(wzBundleId && wzAttribute);
 
     HRESULT hr = S_OK;
-    BUNDLE_INSTALL_CONTEXT context = BUNDLE_INSTALL_CONTEXT_MACHINE;
     LPWSTR sczValue = NULL;
     HKEY hkBundle = NULL;
     DWORD cchSource = 0;
@@ -55,8 +58,8 @@ extern "C" HRESULT DAPI BundleGetBundleInfo(
         ButilExitOnFailure(hr = E_INVALIDARG, "An invalid parameter was passed to the function.");
     }
 
-    if (FAILED(hr = OpenBundleKey(wzBundleId, context = BUNDLE_INSTALL_CONTEXT_MACHINE, &hkBundle)) &&
-        FAILED(hr = OpenBundleKey(wzBundleId, context = BUNDLE_INSTALL_CONTEXT_USER, &hkBundle)))
+    if (FAILED(hr = OpenBundleKey(wzBundleId, BUNDLE_INSTALL_CONTEXT_MACHINE, NULL, &hkBundle)) &&
+        FAILED(hr = OpenBundleKey(wzBundleId, BUNDLE_INSTALL_CONTEXT_USER, NULL, &hkBundle)))
     {
         ButilExitOnFailure(E_FILENOTFOUND == hr ? HRESULT_FROM_WIN32(ERROR_UNKNOWN_PRODUCT) : hr, "Failed to locate bundle uninstall key path.");
     }
@@ -108,7 +111,10 @@ LExit:
     return hr;
 }
 
-HRESULT DAPI BundleEnumRelatedBundle(
+/********************************************************************
+********************************************************************/
+
+extern "C" HRESULT DAPI BundleEnumRelatedBundle(
   __in_z LPCWSTR wzUpgradeCode,
   __in BUNDLE_INSTALL_CONTEXT context,
   __inout PDWORD pdwStartIndex,
@@ -231,11 +237,80 @@ LExit:
     return hr;
 }
 
+/********************************************************************
+BundleGetBundleVariable - Queries the bundle installation metadata for a given variable,
+the caller is expected to free the memory returned vis psczValue
+RETURNS:
+S_OK
+ Success, if the variable had a value, it's returned in psczValue
+E_INVALIDARG
+ An invalid parameter was passed to the function.
+HRESULT_FROM_WIN32(ERROR_UNKNOWN_PRODUCT)
+ The bundle is not installed
+HRESULT_FROM_WIN32(ERROR_UNKNOWN_PROPERTY)
+ The variable is unrecognized
+E_NOTIMPL:
+ Tried to read a bundle variable for a type which has not been implemented
 
+All other returns are unexpected returns from other dutil methods.
+********************************************************************/
+
+extern "C" HRESULT DAPI BundleGetBundleVariable(
+    __in_z LPCWSTR wzBundleId,
+    __in_z LPCWSTR wzVariable,
+    __deref_out_z LPWSTR * psczValue
+)
+{
+    Assert(wzBundleId && wzVariable);
+
+    HRESULT hr = S_OK;
+    BUNDLE_INSTALL_CONTEXT context = BUNDLE_INSTALL_CONTEXT_MACHINE;
+    HKEY hkBundle = NULL;
+    DWORD dwType = 0;
+
+    if (!wzBundleId || !wzVariable || !psczValue)
+    {
+        ButilExitOnFailure(hr = E_INVALIDARG, "An invalid parameter was passed to the function.");
+    }
+
+    if (FAILED(hr = OpenBundleKey(wzBundleId, context = BUNDLE_INSTALL_CONTEXT_MACHINE, BUNDLE_REGISTRATION_REGISTRY_BUNDLE_VARIABLE_KEY, &hkBundle)) &&
+        FAILED(hr = OpenBundleKey(wzBundleId, context = BUNDLE_INSTALL_CONTEXT_USER, BUNDLE_REGISTRATION_REGISTRY_BUNDLE_VARIABLE_KEY, &hkBundle)))
+    {
+        ButilExitOnFailure(E_FILENOTFOUND == hr ? HRESULT_FROM_WIN32(ERROR_UNKNOWN_PRODUCT) : hr, "Failed to locate bundle uninstall key variable path.");
+    }
+
+    // If the bundle doesn't have the shared variable defined, return ERROR_UNKNOWN_PROPERTY
+    hr = RegGetType(hkBundle, wzVariable, &dwType);
+    ButilExitOnFailure(E_FILENOTFOUND == hr ? HRESULT_FROM_WIN32(ERROR_UNKNOWN_PROPERTY) : hr, "Failed to locate bundle variable.");
+
+    switch (dwType)
+    {
+    case REG_SZ:
+        hr = RegReadString(hkBundle, wzVariable, psczValue);
+        ButilExitOnFailure(hr, "Failed to read string shared variable.");
+        break;
+    case REG_NONE:
+        hr = S_OK;
+        break;
+    default:
+        ButilExitOnFailure(hr = E_NOTIMPL, "Reading bundle variable of type 0x%x not implemented.", dwType);
+
+    }
+
+LExit:
+    ReleaseRegKey(hkBundle);
+
+    return hr;
+
+}
+/********************************************************************
+*
+********************************************************************/
 HRESULT OpenBundleKey(
     __in_z LPCWSTR wzBundleId,
-    __in BUNDLE_INSTALL_CONTEXT context, 
-    __inout HKEY *key)
+    __in BUNDLE_INSTALL_CONTEXT context,
+    __in_opt LPCWSTR szSubKey,
+    __inout HKEY* key)
 {
     Assert(key && wzBundleId);
     AssertSz(NULL == *key, "*key should be null");
@@ -244,9 +319,16 @@ HRESULT OpenBundleKey(
     HKEY hkRoot = BUNDLE_INSTALL_CONTEXT_USER == context ? HKEY_CURRENT_USER : HKEY_LOCAL_MACHINE;
     LPWSTR sczKeypath = NULL;
 
-    hr = StrAllocFormatted(&sczKeypath, L"%ls\\%ls", BUNDLE_REGISTRATION_REGISTRY_UNINSTALL_KEY, wzBundleId);
+    if (szSubKey)
+    {
+        hr = StrAllocFormatted(&sczKeypath, L"%ls\\%ls\\%ls", BUNDLE_REGISTRATION_REGISTRY_UNINSTALL_KEY, wzBundleId, szSubKey);
+    }
+    else
+    {
+        hr = StrAllocFormatted(&sczKeypath, L"%ls\\%ls", BUNDLE_REGISTRATION_REGISTRY_UNINSTALL_KEY, wzBundleId);
+    }
     ButilExitOnFailure(hr, "Failed to allocate bundle uninstall key path.");
-    
+
     hr = RegOpen(hkRoot, sczKeypath, KEY_READ, key);
     ButilExitOnFailure(hr, "Failed to open bundle uninstall key path.");
 
@@ -255,3 +337,4 @@ LExit:
 
     return hr;
 }
+
